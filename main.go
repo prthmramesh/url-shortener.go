@@ -24,7 +24,8 @@ func main() {
 
 	mux.HandleFunc("GET /stats/{shortCode}", clickEventChecker)
 
-	connectDB()
+	initDB("", "")
+	defer db.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
 

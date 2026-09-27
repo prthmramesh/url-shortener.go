@@ -1,12 +1,15 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"log/slog"
 	"math/rand"
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 func urlshortener(w http.ResponseWriter, r *http.Request) {
@@ -35,9 +38,19 @@ func urlshortener(w http.ResponseWriter, r *http.Request) {
 	urlCode.ShortCode = shorturl
 	urlCode.CreatedTime = time.Now()
 
-	cacheMutex.Lock()
-	urlStore[urlCode.ShortCode] = urlCode
-	cacheMutex.Unlock()
+	if err := insertURL(urlCode.ShortCode, urlCode.OriginalURL); err != nil {
+
+		if pq, ok := err.(*pq.Error); ok && pq.Code == "23505" {
+			http.Error(w, "short url already exists", http.StatusConflict)
+			slog.Warn("db insert failed", "reason", "short url already exists", "shortened_url", urlCode.ShortCode, "original_url", urlCode.OriginalURL)
+			return
+		} else {
+			http.Error(w, "failed to save url", http.StatusInternalServerError)
+			slog.Error("db insert failed", "error", err.Error())
+		}
+
+		return
+	}
 
 	slog.Info("url shortened", "shortened_url", urlCode.ShortCode, "original_url", urlCode.OriginalURL)
 
@@ -63,17 +76,22 @@ func generateCode() string {
 func redirectUrl(w http.ResponseWriter, r *http.Request) {
 	shortCode := r.PathValue("shortCode")
 
-	cacheMutex.RLock()
-	entry, ok := urlStore[shortCode]
-	cacheMutex.RUnlock()
+	entry, err := getOriginalURL(shortCode)
 
-	if !ok {
-		http.Error(w, "Short url not found", http.StatusNotFound)
-		slog.Warn("short_url not found", "short_code", shortCode)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Short url not found", http.StatusNotFound)
+			slog.Warn("short_url not found", "short_code", shortCode)
+			return
+		} else {
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			slog.Error("db query failed", "short_code", shortCode, "error", err.Error())
+		}
 		return
+
 	}
 
-	slog.Info("redirect served", "short_code", shortCode, "destination", entry.OriginalURL)
+	slog.Info("redirect served", "short_code", shortCode, "destination", entry)
 
 	eventClick <- ClickEvent{ShortCode: shortCode, Timestamp: time.Now()}
 
@@ -83,7 +101,7 @@ func redirectUrl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Redirect(w, r, entry.OriginalURL, http.StatusFound)
+	http.Redirect(w, r, entry, http.StatusFound)
 }
 
 func clickEventChecker(w http.ResponseWriter, r *http.Request) {

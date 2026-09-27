@@ -4,21 +4,21 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"time"
 
 	_ "github.com/lib/pq"
 )
 
-func connectDB() {
+var db *sql.DB
+
+func initDB(short_url string, original_url string) {
 	connStr := "host=127.0.0.1 port=5432 user=postgres password=password123 dbname=urlshortener sslmode=disable"
 
-	fmt.Println(connStr)
+	var err error
 
-	db, err := sql.Open("postgres", connStr)
+	db, err = sql.Open("postgres", connStr)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer db.Close()
 
 	err = db.Ping()
 	if err != nil {
@@ -27,26 +27,17 @@ func connectDB() {
 
 	fmt.Println("Successfully connected to the database!")
 
+}
+
+func insertURL(shortURL, originalURL string) error {
 	sqlStatement := `INSERT INTO url_shortener (short_url, original_url, created_at) VALUES ($1, $2, NOW())`
-	_, err = db.Exec(sqlStatement, "short1", "https://www.example.com/long-url-1")
-	if err != nil {
-		log.Fatal(err)
-	}
+	_, err := db.Exec(sqlStatement, shortURL, originalURL)
+	return err
+}
 
-	sqlStatement2 := `SELECT short_url, original_url, created_at FROM url_shortener`
-	rows, err := db.Query(sqlStatement2)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var shortURL, originalURL string
-		var createdAt time.Time
-		err = rows.Scan(&shortURL, &originalURL, &createdAt)
-		if err != nil {
-			log.Fatal(err)
-		}
-		fmt.Printf("Short URL: %s, Original URL: %s, Created At: %s\n", shortURL, originalURL, createdAt)
-	}
+func getOriginalURL(shortCode string) (string, error) {
+	sqlStatement := `SELECT original_url FROM url_shortener WHERE short_url = $1`
+	var originalURL string
+	err := db.QueryRow(sqlStatement, shortCode).Scan(&originalURL)
+	return originalURL, err
 }

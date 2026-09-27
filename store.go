@@ -5,9 +5,6 @@ import (
 	"time"
 )
 
-var urlStore = make(map[string]ShortURL) //in memory storage of short_url generated
-var cacheMutex sync.RWMutex              //mutex var for inmemory storage
-
 var clickCounter = make(map[string]int) //counter to count number of times short_url is fetched
 var clickCounterMutex sync.RWMutex      //mutex var for counter map
 
